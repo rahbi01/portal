@@ -1,0 +1,27 @@
+<div class="card">
+    <div class="card-header bg-secondary text-white">إدارة البيانات</div>
+    <div class="card-body">
+        <h5>إضافة عنصر جديد</h5>
+        <div class="row mb-3">
+            <div class="col-md-6"><input type="text" id="newItemName" class="form-control" placeholder="الاسم"></div>
+            <div class="col-md-3"><button class="btn btn-primary add-single-btn" data-table="{{ table_name }}">إضافة</button></div>
+        </div>
+        <h5>إضافة عدة عناصر دفعة واحدة</h5>
+        <div class="row mb-3">
+            <div class="col-md-6"><textarea id="bulkItems" class="form-control" rows="3" placeholder="أدخل عناصر مفصولة بفاصلة أو سطر جديد"></textarea></div>
+            <div class="col-md-3"><button class="btn btn-info add-bulk-btn" data-table="{{ table_name }}">إضافة الجميع</button></div>
+        </div>
+        <h5>قائمة العناصر الحالية</h5>
+        <table class="table table-sm">
+            <thead><tr><th>#</th><th>الاسم</th><th>إجراء</th></tr></thead>
+            <tbody id="itemsList-{{ table_name }}">
+                {% for item in items %}
+                <tr data-id="{{ item.id }}">
+                    <td>{{ item.id }}</td><td>{{ item.name }}</td>
+                    <td><button class="btn btn-danger btn-sm delete-item" data-table="{{ table_name }}" data-id="{{ item.id }}"><i class="fas fa-trash"></i></button></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
