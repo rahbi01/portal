@@ -5,7 +5,7 @@ from datetime import datetime, date
 import os
 
 app = Flask(__name__)
-app.secret_key = 'your-secret-key-change-in-production'  # غيّره في الإنتاج
+app.secret_key = 'your-secret-key-change-in-production'
 
 # -------------------- دوال مساعدة --------------------
 def get_db_connection():
@@ -14,7 +14,7 @@ def get_db_connection():
     return conn
 
 def init_db():
-    """إنشاء الجداول إذا لم تكن موجودة وإضافة بيانات افتراضية"""
+    """إنشاء الجداول وإضافة بيانات افتراضية إذا كانت فارغة"""
     conn = get_db_connection()
     cursor = conn.cursor()
     
@@ -43,14 +43,14 @@ def init_db():
                        receiver TEXT NOT NULL,
                        work_days INTEGER)''')
     
-    # إدراج بيانات افتراضية إذا كانت الجداول فارغة
+    # بيانات افتراضية للجداول المرجعية إذا كانت فارغة
     if not cursor.execute("SELECT 1 FROM Departments LIMIT 1").fetchone():
         cursor.executemany("INSERT INTO Departments (name) VALUES (?)", 
-                           [("مديرية التربية",), ("مدرسة اليرموك",), ("قسم التقنيات",)])
+                           [("مديرية التربية",), ("مدرسة اليرموك",), ("قسم التقنيات",), ("مدرسة الأندلس",)])
         cursor.executemany("INSERT INTO Services (name) VALUES (?)",
-                           [("صيانة أجهزة",), ("ترقية نظام",), ("تدريب",)])
+                           [("صيانة أجهزة",), ("ترقية نظام",), ("تدريب",), ("استشارات",)])
         cursor.executemany("INSERT INTO Systems (name) VALUES (?)",
-                           [("نظام نور",), ("نظام المراسلات",), ("البريد الإلكتروني",)])
+                           [("نظام نور",), ("نظام المراسلات",), ("البريد الإلكتروني",), ("نظام الموارد",)])
         cursor.executemany("INSERT INTO RequestVia (name) VALUES (?)",
                            [("بريد إلكتروني",), ("نظام المراسلات",), ("نور",)])
         # نموذج طلب تجريبي
@@ -79,13 +79,11 @@ def calculate_workdays(start_date_str, end_date_str=None):
     if end < start:
         end = start
     holidays = get_holidays_list()
-    # numpy.busday_count: weekmask = '1111100' يعني العمل من الأحد إلى الخميس
-    # الأحد=6, الإثنين=0, الثلاثاء=1, الأربعاء=2, الخميس=3, الجمعة=4, السبت=5
     workdays = np.busday_count(start, end, weekmask='1111100', holidays=holidays)
     return int(workdays)
 
 def get_table_data(table_name):
-    """استرجاع جميع صفوف الجدول (id, name)"""
+    """استرجاع جميع صفوف الجدول (id, name) مرتبة حسب الاسم"""
     conn = get_db_connection()
     rows = conn.execute(f"SELECT id, name FROM {table_name} ORDER BY name").fetchall()
     conn.close()
@@ -94,16 +92,13 @@ def get_table_data(table_name):
 # -------------------- Routes --------------------
 @app.route('/')
 def index():
-    """الصفحة الرئيسية: عرض الطلبات والقوائم المنسدلة للمودال"""
     conn = get_db_connection()
     requests = conn.execute("SELECT * FROM Requests ORDER BY receive_date DESC").fetchall()
     conn.close()
-    
     departments = get_table_data('Departments')
     services = get_table_data('Services')
     systems = get_table_data('Systems')
     request_via = get_table_data('RequestVia')
-    
     return render_template('index.html',
                            requests=requests,
                            departments=departments,
@@ -113,7 +108,6 @@ def index():
 
 @app.route('/add_request', methods=['POST'])
 def add_request():
-    """إضافة طلب جديد (AJAX)"""
     department = request.form['department']
     service = request.form['service']
     system = request.form['system']
@@ -122,9 +116,7 @@ def add_request():
     response_date = request.form.get('response_date', '')
     details = request.form['details']
     receiver = request.form['receiver']
-    
     work_days = calculate_workdays(receive_date, response_date)
-    
     conn = get_db_connection()
     conn.execute('''INSERT INTO Requests 
                     (department, service, system, request_via, receive_date, response_date, details, receiver, work_days)
@@ -133,12 +125,19 @@ def add_request():
                   response_date if response_date else None, details, receiver, work_days))
     conn.commit()
     conn.close()
-    
     return jsonify({'success': True, 'message': 'تم إضافة الطلب بنجاح'})
+
+@app.route('/calculate_workdays')
+def calc_workdays_ajax():
+    start = request.args.get('start')
+    end = request.args.get('end')
+    if not start or not end:
+        return jsonify({'workdays': 0})
+    days = calculate_workdays(start, end)
+    return jsonify({'workdays': days})
 
 @app.route('/admin')
 def admin():
-    """صفحة الإدارة بتبويبات"""
     departments = get_table_data('Departments')
     services = get_table_data('Services')
     systems = get_table_data('Systems')
@@ -153,7 +152,6 @@ def admin():
 
 @app.route('/add_item/<table_name>', methods=['POST'])
 def add_item(table_name):
-    """إضافة عنصر جديد إلى جدول مرجعي (AJAX)"""
     name = request.form['name'].strip()
     if not name:
         return jsonify({'success': False, 'message': 'الاسم مطلوب'})
@@ -168,11 +166,9 @@ def add_item(table_name):
 
 @app.route('/add_multiple_items/<table_name>', methods=['POST'])
 def add_multiple_items(table_name):
-    """إضافة عدة عناصر دفعة واحدة (مفصولة بفاصلة أو سطر جديد)"""
     raw = request.form['items'].strip()
     if not raw:
         return jsonify({'success': False, 'message': 'لا توجد بيانات'})
-    # تقسيم حسب الفاصلة أو السطر الجديد
     items = [item.strip() for item in raw.replace('\r', '').replace('\n', ',').split(',') if item.strip()]
     conn = get_db_connection()
     added = 0
@@ -188,7 +184,6 @@ def add_multiple_items(table_name):
 
 @app.route('/delete_item/<table_name>/<int:item_id>', methods=['DELETE'])
 def delete_item(table_name, item_id):
-    """حذف عنصر من جدول مرجعي"""
     conn = get_db_connection()
     conn.execute(f"DELETE FROM {table_name} WHERE id = ?", (item_id,))
     conn.commit()
@@ -197,7 +192,6 @@ def delete_item(table_name, item_id):
 
 @app.route('/get_select_data')
 def get_select_data():
-    """إرجاع جميع القوائم المنسدلة بصيغة JSON (للتحديث الديناميكي)"""
     return jsonify({
         'departments': [{'id': r['id'], 'name': r['name']} for r in get_table_data('Departments')],
         'services': [{'id': r['id'], 'name': r['name']} for r in get_table_data('Services')],
@@ -207,7 +201,6 @@ def get_select_data():
 
 @app.route('/get_statistics')
 def get_statistics():
-    """إحصائيات: عدد الطلبات لكل موظف والإجمالي"""
     conn = get_db_connection()
     stats = conn.execute('''SELECT receiver, COUNT(*) as count 
                             FROM Requests GROUP BY receiver ORDER BY count DESC''').fetchall()
@@ -218,12 +211,10 @@ def get_statistics():
 
 @app.route('/filter_requests')
 def filter_requests():
-    """البحث والتصفية: معاملات receiver, date_from, date_to, department"""
     receiver = request.args.get('receiver', '').strip()
     date_from = request.args.get('date_from', '')
     date_to = request.args.get('date_to', '')
     department = request.args.get('department', '').strip()
-    
     base_query = "SELECT * FROM Requests WHERE 1=1"
     params = []
     if receiver:
@@ -239,7 +230,6 @@ def filter_requests():
         base_query += " AND receive_date <= ?"
         params.append(date_to)
     base_query += " ORDER BY receive_date DESC"
-    
     conn = get_db_connection()
     rows = conn.execute(base_query, params).fetchall()
     conn.close()
