@@ -1,0 +1,13 @@
+body {
+    background-color: #f8f9fc;
+}
+.table-responsive {
+    overflow-x: auto;
+}
+.btn-lg i {
+    margin-left: 8px;
+}
+.alert-info i {
+    display: block;
+    margin-bottom: 10px;
+}
